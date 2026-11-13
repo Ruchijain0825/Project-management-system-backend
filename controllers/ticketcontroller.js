@@ -3,6 +3,11 @@ const Ticket = require("../models/Ticket");
 const Project = require("../models/Project");
 const mongoose = require("mongoose");
 
+// Helper: Get current authenticated user ID
+const getUserId = (req) => {
+  return req.user?.id || req.user?._id;
+};
+
 // Helper: Check project access
 const getAccessibleProject = async (projectId, userId) => {
   if (!mongoose.Types.ObjectId.isValid(projectId)) {
@@ -18,6 +23,31 @@ const getAccessibleProject = async (projectId, userId) => {
   });
 };
 
+// Helper: Check whether user is project owner
+const isProjectOwner = (project, userId) => {
+  return project.owner.toString() === userId.toString();
+};
+
+// Validation constants
+const VALID_PRIORITIES = [
+  "Low",
+  "Medium",
+  "High",
+  "Critical"
+];
+
+const VALID_STATUSES = [
+  "To Do",
+  "In Progress",
+  "Done"
+];
+
+const VALID_TYPES = [
+  "Bug",
+  "Feature",
+  "Task"
+];
+
 
 // 1. CREATE TICKET
 const createTicket = async (req, res) => {
@@ -31,6 +61,8 @@ const createTicket = async (req, res) => {
       assignee
     } = req.body;
 
+    const userId = getUserId(req);
+
     if (!title || typeof title !== "string" || title.trim().length < 3) {
       return res.status(400).json({
         success: false,
@@ -38,9 +70,23 @@ const createTicket = async (req, res) => {
       });
     }
 
+    if (type && !VALID_TYPES.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ticket type"
+      });
+    }
+
+    if (priority && !VALID_PRIORITIES.includes(priority)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid priority"
+      });
+    }
+
     const project = await getAccessibleProject(
       projectId,
-      req.user.id
+      userId
     );
 
     if (!project) {
@@ -50,16 +96,23 @@ const createTicket = async (req, res) => {
       });
     }
 
-    // Validate assignee if provided
+    // Validate assignee
     if (assignee) {
+      if (!mongoose.Types.ObjectId.isValid(assignee)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid assignee ID"
+        });
+      }
+
       const isMember = project.teamMembers.some(
-        id => id.toString() === assignee
+        id => id.toString() === assignee.toString()
       );
 
-      if (
-        project.owner.toString() !== assignee &&
-        !isMember
-      ) {
+      const isOwner =
+        project.owner.toString() === assignee.toString();
+
+      if (!isMember && !isOwner) {
         return res.status(400).json({
           success: false,
           message: "Assignee must belong to this project"
@@ -69,11 +122,11 @@ const createTicket = async (req, res) => {
 
     const ticket = await Ticket.create({
       title: title.trim(),
-      description,
-      type,
-      priority,
+      description: description || "",
+      type: type || "Task",
+      priority: priority || "Medium",
       projectId,
-      reporter: req.user.id,
+      reporter: userId,
       assignee: assignee || null
     });
 
@@ -84,9 +137,16 @@ const createTicket = async (req, res) => {
     });
 
   } catch (error) {
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Failed to create ticket"
     });
   }
 };
@@ -96,10 +156,11 @@ const createTicket = async (req, res) => {
 const getTickets = async (req, res) => {
   try {
     const { projectId } = req.params;
+    const userId = getUserId(req);
 
     const project = await getAccessibleProject(
       projectId,
-      req.user.id
+      userId
     );
 
     if (!project) {
@@ -124,7 +185,7 @@ const getTickets = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Failed to fetch tickets"
     });
   }
 };
@@ -134,7 +195,17 @@ const getTickets = async (req, res) => {
 const updateTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
-    const { title, description, priority, status, type } = req.body;
+
+    const {
+      title,
+      description,
+      priority,
+      status,
+      type,
+      assignee
+    } = req.body;
+
+    const userId = getUserId(req);
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({
@@ -154,7 +225,7 @@ const updateTicket = async (req, res) => {
 
     const project = await getAccessibleProject(
       ticket.projectId,
-      req.user.id
+      userId
     );
 
     if (!project) {
@@ -164,8 +235,12 @@ const updateTicket = async (req, res) => {
       });
     }
 
+    // Validate title
     if (title !== undefined) {
-      if (typeof title !== "string" || title.trim().length < 3) {
+      if (
+        typeof title !== "string" ||
+        title.trim().length < 3
+      ) {
         return res.status(400).json({
           success: false,
           message: "Title must be at least 3 characters"
@@ -175,6 +250,7 @@ const updateTicket = async (req, res) => {
       ticket.title = title.trim();
     }
 
+    // Validate description
     if (description !== undefined) {
       if (typeof description !== "string") {
         return res.status(400).json({
@@ -186,16 +262,83 @@ const updateTicket = async (req, res) => {
       ticket.description = description;
     }
 
-    if (priority !== undefined) ticket.priority = priority;
-    if (status !== undefined) ticket.status = status;
-    if (type !== undefined) ticket.type = type;
+    // Validate priority
+    if (priority !== undefined) {
+      if (!VALID_PRIORITIES.includes(priority)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid priority"
+        });
+      }
+
+      ticket.priority = priority;
+    }
+
+    // Validate status
+    if (status !== undefined) {
+      if (!VALID_STATUSES.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status"
+        });
+      }
+
+      ticket.status = status;
+    }
+
+    // Validate type
+    if (type !== undefined) {
+      if (!VALID_TYPES.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid ticket type"
+        });
+      }
+
+      ticket.type = type;
+    }
+
+    // Validate assignee
+    if (assignee !== undefined) {
+      if (assignee === null || assignee === "") {
+        ticket.assignee = null;
+      } else {
+        if (!mongoose.Types.ObjectId.isValid(assignee)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid assignee ID"
+          });
+        }
+
+        const isMember = project.teamMembers.some(
+          member => member.toString() === assignee.toString()
+        );
+
+        const isOwner =
+          project.owner.toString() === assignee.toString();
+
+        if (!isMember && !isOwner) {
+          return res.status(400).json({
+            success: false,
+            message: "Assignee must belong to this project"
+          });
+        }
+
+        ticket.assignee = assignee;
+      }
+    }
 
     await ticket.save();
+
+    const updatedTicket = await Ticket.findById(ticket._id)
+      .populate("reporter", "name email")
+      .populate("assignee", "name email")
+      .populate("projectId", "title");
 
     return res.status(200).json({
       success: true,
       message: "Ticket updated successfully",
-      ticket
+      ticket: updatedTicket
     });
 
   } catch (error) {
@@ -208,7 +351,7 @@ const updateTicket = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Failed to update ticket"
     });
   }
 };
@@ -218,6 +361,7 @@ const updateTicket = async (req, res) => {
 const deleteTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
+    const userId = getUserId(req);
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({
@@ -237,7 +381,7 @@ const deleteTicket = async (req, res) => {
 
     const project = await getAccessibleProject(
       ticket.projectId,
-      req.user.id
+      userId
     );
 
     if (!project) {
@@ -247,16 +391,17 @@ const deleteTicket = async (req, res) => {
       });
     }
 
-    const isOwner =
-      project.owner.toString() === req.user.id;
+    const isOwner = isProjectOwner(project, userId);
 
     const isReporter =
-      ticket.reporter.toString() === req.user.id;
+      ticket.reporter.toString() === userId.toString();
 
-    if (!isOwner && !isReporter) {
+    const isAdmin = req.user.role === "admin";
+
+    if (!isOwner && !isReporter && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: "Only project owner or ticket reporter can delete"
+        message: "Only project owner, reporter or admin can delete"
       });
     }
 
@@ -270,7 +415,7 @@ const deleteTicket = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Failed to delete ticket"
     });
   }
 };
@@ -281,6 +426,8 @@ const assignTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
     const { assignee } = req.body;
+
+    const userId = getUserId(req);
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({
@@ -300,7 +447,7 @@ const assignTicket = async (req, res) => {
 
     const project = await getAccessibleProject(
       ticket.projectId,
-      req.user.id
+      userId
     );
 
     if (!project) {
@@ -310,8 +457,8 @@ const assignTicket = async (req, res) => {
       });
     }
 
-    // null means unassign the ticket
-    if (assignee === null) {
+    // null or empty string means unassign
+    if (assignee === null || assignee === "") {
       ticket.assignee = null;
     } else {
       if (!mongoose.Types.ObjectId.isValid(assignee)) {
@@ -322,11 +469,11 @@ const assignTicket = async (req, res) => {
       }
 
       const isMember = project.teamMembers.some(
-        id => id.toString() === assignee
+        member => member.toString() === assignee.toString()
       );
 
       const isOwner =
-        project.owner.toString() === assignee;
+        project.owner.toString() === assignee.toString();
 
       if (!isMember && !isOwner) {
         return res.status(400).json({
@@ -340,16 +487,19 @@ const assignTicket = async (req, res) => {
 
     await ticket.save();
 
+    const updatedTicket = await Ticket.findById(ticket._id)
+      .populate("assignee", "name email");
+
     return res.status(200).json({
       success: true,
       message: "Ticket assignment updated",
-      ticket
+      ticket: updatedTicket
     });
 
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Failed to assign ticket"
     });
   }
 };
