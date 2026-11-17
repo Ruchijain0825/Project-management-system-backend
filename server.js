@@ -5,10 +5,11 @@ const dotenv = require("dotenv");
 
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
-const authMiddleware = require("./middleware/authMiddleware");
-const projectRoutes = require("./routes/projectRoutes");
-const ticketRoutes = require("./routes/ticketRoutes");
-const commentRoutes = require("./routes/commentRoutes");
+const authMiddleware = require("./middlewares/authMiddleware.js");
+const projectRoutes = require("./routes/projectroute.js");
+const ticketRoutes = require("./routes/ticketRoutes.js");
+const commentRoutes = require("./routes/commentRoute.js");
+const authRoutes = require("./routes/authRoutes.js");
 dotenv.config();
 
 const app = express();
@@ -27,6 +28,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/comments", commentRoutes);
+app.use("/api/auth", authRoutes);
 
 // Protected test route
 app.get("/api/auth/me", authMiddleware, (req, res) => {
