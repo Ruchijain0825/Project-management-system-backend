@@ -14,19 +14,14 @@ const {
 
 router.use(authMiddleware);
 
-// Create ticket
 router.post("/", createTicket);
 
-// Get tickets of a project
 router.get("/project/:projectId", getTickets);
 
-// Update ticket
 router.put("/:ticketId", updateTicket);
 
-// Delete ticket
 router.delete("/:ticketId", deleteTicket);
 
-// Assign ticket
 router.patch("/:ticketId/assign", assignTicket);
 
 module.exports = router;

@@ -5,7 +5,7 @@ const ticketSchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: true,
+      required: [true, "Ticket title is required"],
       trim: true,
       minlength: 3,
       maxlength: 150
@@ -13,6 +13,7 @@ const ticketSchema = new mongoose.Schema(
 
     description: {
       type: String,
+      trim: true,
       default: "",
       maxlength: 3000
     },
@@ -38,7 +39,8 @@ const ticketSchema = new mongoose.Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
-      required: true
+      required: true,
+      index: true
     },
 
     reporter: {
@@ -58,7 +60,10 @@ const ticketSchema = new mongoose.Schema(
   }
 );
 
+// Query optimization
 ticketSchema.index({ projectId: 1, status: 1 });
+ticketSchema.index({ projectId: 1, priority: 1 });
 ticketSchema.index({ assignee: 1 });
+ticketSchema.index({ reporter: 1 });
 
 module.exports = mongoose.model("Ticket", ticketSchema);

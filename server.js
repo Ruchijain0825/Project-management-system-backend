@@ -9,7 +9,7 @@ const authMiddleware = require("./middlewares/authMiddleware.js");
 const projectRoutes = require("./routes/projectroute.js");
 const ticketRoutes = require("./routes/ticketRoutes.js");
 const commentRoutes = require("./routes/commentRoute.js");
-const authRoutes = require("./routes/authRoutes.js");
+
 dotenv.config();
 
 const app = express();

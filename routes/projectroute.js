@@ -7,24 +7,34 @@ const authMiddleware = require("../middlewares/authMiddleware");
 const {
   createProject,
   getProjects,
+  getProjectById,
   updateProject,
   deleteProject,
   addTeamMember,
   removeTeamMember
-} = require("../controllers/projectcontroller.js");
+} = require("../controllers/projectcontroller");
 
-// All project routes require authentication
+
 router.use(authMiddleware);
+
 
 router.post("/", createProject);
 
+
 router.get("/", getProjects);
+
+
+router.get("/:id", getProjectById);
+
 
 router.put("/:id", updateProject);
 
+
 router.delete("/:id", deleteProject);
 
+
 router.post("/:id/members", addTeamMember);
+
 
 router.delete("/:id/members", removeTeamMember);
 
