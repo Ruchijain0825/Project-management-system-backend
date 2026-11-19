@@ -9,7 +9,7 @@ const authMiddleware = require("./middlewares/authMiddleware.js");
 const projectRoutes = require("./routes/projectroute.js");
 const ticketRoutes = require("./routes/ticketRoutes.js");
 const commentRoutes = require("./routes/commentRoute.js");
-
+const aiRoutes = require("./routes/aiRoutes.js")
 dotenv.config();
 
 const app = express();
@@ -29,6 +29,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/ai",aiRoutes)
 
 // Protected test route
 app.get("/api/auth/me", authMiddleware, (req, res) => {
@@ -38,7 +39,7 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 
 const startServer = async () => {
   await connectDB();

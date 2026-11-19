@@ -1,14 +1,19 @@
 
 const mongoose = require("mongoose");
+
 const Project = require("../models/Project");
 const User = require("../models/User");
 const Ticket = require("../models/Ticket");
 const Comment = require("../models/Comment");
+const TeamMember = require("../models/TeamMember");
 
-// Reusable ObjectId validation
+// Helpers
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-// Reusable project access check
+const getCurrentUserId = (req) => req.user?.id || req.user?._id;
+
+const allowedRoles = ["admin", "manager", "developer", "viewer"];
+
 const findOwnedProject = async (projectId, userId) => {
   return Project.findOne({
     _id: projectId,
@@ -16,27 +21,24 @@ const findOwnedProject = async (projectId, userId) => {
   });
 };
 
+const escapeRegex = (value) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // 1. CREATE PROJECT
 const createProject = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      status,
-      visibility
-    } = req.body;
+    const { title, description, status, visibility } = req.body;
+    const userId = getCurrentUserId(req);
 
-    if (!title || typeof title !== "string" || title.trim().length < 3) {
+    if (
+      !title ||
+      typeof title !== "string" ||
+      title.trim().length < 3 ||
+      title.trim().length > 100
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Project title must be at least 3 characters"
-      });
-    }
-
-    if (title.trim().length > 100) {
-      return res.status(400).json({
-        success: false,
-        message: "Project title cannot exceed 100 characters"
+        message: "Project title must contain 3 to 100 characters"
       });
     }
 
@@ -46,7 +48,7 @@ const createProject = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Description must be text and cannot exceed 1000 characters"
+        message: "Description cannot exceed 1000 characters"
       });
     }
 
@@ -73,7 +75,7 @@ const createProject = async (req, res) => {
     const project = await Project.create({
       title: title.trim(),
       description: description?.trim() || "",
-      owner: req.user.id,
+      owner: userId,
       teamMembers: [],
       status: status || "Active",
       visibility: visibility || "Private"
@@ -84,7 +86,6 @@ const createProject = async (req, res) => {
       message: "Project created successfully",
       project
     });
-
   } catch (error) {
     console.error("Create Project Error:", error);
 
@@ -95,10 +96,11 @@ const createProject = async (req, res) => {
   }
 };
 
-
-// 2. GET ALL PROJECTS WITH SEARCH AND PAGINATION
+// 2. GET ALL PROJECTS
 const getProjects = async (req, res) => {
   try {
+    const userId = getCurrentUserId(req);
+
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(
       50,
@@ -109,22 +111,20 @@ const getProjects = async (req, res) => {
 
     const filter = {
       $or: [
-        { owner: req.user.id },
-        { teamMembers: req.user.id }
+        { owner: userId },
+        { teamMembers: userId }
       ]
     };
 
-    // Search by project title
     if (req.query.search) {
       const search = String(req.query.search).trim().slice(0, 100);
 
       filter.title = {
-        $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        $regex: escapeRegex(search),
         $options: "i"
       };
     }
 
-    // Filter by status
     if (req.query.status) {
       if (!["Active", "Completed", "Archived"].includes(req.query.status)) {
         return res.status(400).json({
@@ -136,7 +136,6 @@ const getProjects = async (req, res) => {
       filter.status = req.query.status;
     }
 
-    // Filter by visibility
     if (req.query.visibility) {
       if (!["Private", "Team"].includes(req.query.visibility)) {
         return res.status(400).json({
@@ -151,7 +150,7 @@ const getProjects = async (req, res) => {
     const [projects, total] = await Promise.all([
       Project.find(filter)
         .populate("owner", "name email")
-        .populate("teamMembers", "name email")
+        .populate("teamMembers", "name email role")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -167,7 +166,6 @@ const getProjects = async (req, res) => {
       totalPages: Math.ceil(total / limit),
       projects
     });
-
   } catch (error) {
     console.error("Get Projects Error:", error);
 
@@ -178,11 +176,11 @@ const getProjects = async (req, res) => {
   }
 };
 
-
 // 3. GET SINGLE PROJECT
 const getProjectById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = getCurrentUserId(req);
 
     if (!isValidId(id)) {
       return res.status(400).json({
@@ -194,12 +192,12 @@ const getProjectById = async (req, res) => {
     const project = await Project.findOne({
       _id: id,
       $or: [
-        { owner: req.user.id },
-        { teamMembers: req.user.id }
+        { owner: userId },
+        { teamMembers: userId }
       ]
     })
       .populate("owner", "name email")
-      .populate("teamMembers", "name email");
+      .populate("teamMembers", "name email role");
 
     if (!project) {
       return res.status(404).json({
@@ -212,7 +210,6 @@ const getProjectById = async (req, res) => {
       success: true,
       project
     });
-
   } catch (error) {
     console.error("Get Project Error:", error);
 
@@ -223,17 +220,12 @@ const getProjectById = async (req, res) => {
   }
 };
 
-
 // 4. UPDATE PROJECT
 const updateProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      title,
-      description,
-      status,
-      visibility
-    } = req.body;
+    const { title, description, status, visibility } = req.body;
+    const userId = getCurrentUserId(req);
 
     if (!isValidId(id)) {
       return res.status(400).json({
@@ -242,7 +234,7 @@ const updateProject = async (req, res) => {
       });
     }
 
-    const project = await findOwnedProject(id, req.user.id);
+    const project = await findOwnedProject(id, userId);
 
     if (!project) {
       return res.status(404).json({
@@ -273,7 +265,7 @@ const updateProject = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: "Description must be text and cannot exceed 1000 characters"
+          message: "Description cannot exceed 1000 characters"
         });
       }
 
@@ -309,7 +301,6 @@ const updateProject = async (req, res) => {
       message: "Project updated successfully",
       project
     });
-
   } catch (error) {
     console.error("Update Project Error:", error);
 
@@ -320,13 +311,13 @@ const updateProject = async (req, res) => {
   }
 };
 
-
-
+// 5. DELETE PROJECT
 const deleteProject = async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
     const { id } = req.params;
+    const userId = getCurrentUserId(req);
 
     if (!isValidId(id)) {
       return res.status(400).json({
@@ -336,40 +327,37 @@ const deleteProject = async (req, res) => {
     }
 
     await session.withTransaction(async () => {
-      // Only project owner can delete
       const project = await Project.findOne({
         _id: id,
-        owner: req.user.id
+        owner: userId
       }).session(session);
 
       if (!project) {
-        const error = new Error(
-          "Project not found or unauthorized"
-        );
+        const error = new Error("Project not found or unauthorized");
         error.statusCode = 404;
         throw error;
       }
 
-      // Find all tickets belonging to this project
       const tickets = await Ticket.find({
         projectId: project._id
       })
         .select("_id")
         .session(session);
 
-      const ticketIds = tickets.map(ticket => ticket._id);
+      const ticketIds = tickets.map((ticket) => ticket._id);
 
-      // Delete all comments associated with these tickets
       await Comment.deleteMany({
         ticketId: { $in: ticketIds }
       }).session(session);
 
-      // Delete all project tickets
       await Ticket.deleteMany({
         projectId: project._id
       }).session(session);
 
-      // Finally delete project
+      await TeamMember.deleteMany({
+        project: project._id
+      }).session(session);
+
       await Project.deleteOne({
         _id: project._id
       }).session(session);
@@ -377,9 +365,8 @@ const deleteProject = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Project, tickets and comments deleted successfully"
+      message: "Project and related data deleted successfully"
     });
-
   } catch (error) {
     console.error("Delete Project Error:", error);
 
@@ -389,18 +376,17 @@ const deleteProject = async (req, res) => {
         ? error.message
         : "Failed to delete project"
     });
-
   } finally {
     await session.endSession();
   }
 };
 
-
 // 6. ADD TEAM MEMBER
 const addTeamMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { email } = req.body;
+    const { email, role = "developer" } = req.body;
+    const userId = getCurrentUserId(req);
 
     if (!isValidId(id)) {
       return res.status(400).json({
@@ -416,7 +402,14 @@ const addTeamMember = async (req, res) => {
       });
     }
 
-    const project = await findOwnedProject(id, req.user.id);
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid team member role"
+      });
+    }
+
+    const project = await findOwnedProject(id, userId);
 
     if (!project) {
       return res.status(404).json({
@@ -427,49 +420,77 @@ const addTeamMember = async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    const member = await User.findOne({
+    const user = await User.findOne({
       email: normalizedEmail
     }).select("_id name email");
 
-    if (!member) {
+    if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "No registered user found with this email"
       });
     }
 
-    if (member._id.toString() === req.user.id.toString()) {
+    if (user._id.toString() === userId.toString()) {
       return res.status(400).json({
         success: false,
         message: "Project owner is already a member"
       });
     }
 
-    const alreadyExists = project.teamMembers.some(
-      (memberId) => memberId.toString() === member._id.toString()
-    );
+    const existingMember = await TeamMember.findOne({
+      project: id,
+      user: user._id
+    });
 
-    if (alreadyExists) {
+    if (existingMember && existingMember.status !== "removed") {
       return res.status(409).json({
         success: false,
-        message: "User already exists in this project"
+        message: "User is already a member"
       });
     }
 
-    project.teamMembers.push(member._id);
+    let member;
 
-    await project.save();
+    if (existingMember) {
+      existingMember.role = role;
+      existingMember.status = "active";
+      existingMember.addedBy = userId;
 
-    await project.populate("teamMembers", "name email");
+      member = await existingMember.save();
+    } else {
+      member = await TeamMember.create({
+        project: id,
+        user: user._id,
+        role,
+        status: "active",
+        addedBy: userId
+      });
+    }
 
-    return res.status(200).json({
+    await Project.updateOne(
+      { _id: id },
+      { $addToSet: { teamMembers: user._id } }
+    );
+
+    member = await TeamMember.findById(member._id)
+      .populate("user", "name email")
+      .populate("addedBy", "name email");
+
+    return res.status(201).json({
       success: true,
       message: "Team member added successfully",
-      project
+      member
     });
-
   } catch (error) {
     console.error("Add Team Member Error:", error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "User is already a member"
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -478,21 +499,79 @@ const addTeamMember = async (req, res) => {
   }
 };
 
-
-// 7. REMOVE TEAM MEMBER
-const removeTeamMember = async (req, res) => {
+// 7. GET TEAM MEMBERS
+const getTeamMembers = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.body;
+    const userId = getCurrentUserId(req);
 
-    if (!isValidId(id) || !isValidId(userId)) {
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid project ID"
+      });
+    }
+
+    const project = await Project.findOne({
+      _id: id,
+      $or: [
+        { owner: userId },
+        { teamMembers: userId }
+      ]
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found or access denied"
+      });
+    }
+
+    const members = await TeamMember.find({
+      project: id,
+      status: "active"
+    })
+      .populate("user", "name email role")
+      .populate("addedBy", "name email")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: members.length,
+      members
+    });
+  } catch (error) {
+    console.error("Get Team Members Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch team members"
+    });
+  }
+};
+
+// 8. UPDATE TEAM MEMBER ROLE
+const updateTeamMemberRole = async (req, res) => {
+  try {
+    const { id, userId: memberUserId } = req.params;
+    const { role } = req.body;
+    const currentUserId = getCurrentUserId(req);
+
+    if (!isValidId(id) || !isValidId(memberUserId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid project ID or user ID"
       });
     }
 
-    const project = await findOwnedProject(id, req.user.id);
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role"
+      });
+    }
+
+    const project = await findOwnedProject(id, currentUserId);
 
     if (!project) {
       return res.status(404).json({
@@ -501,31 +580,96 @@ const removeTeamMember = async (req, res) => {
       });
     }
 
-    const exists = project.teamMembers.some(
-      (memberId) => memberId.toString() === userId
-    );
+    const member = await TeamMember.findOneAndUpdate(
+      {
+        project: id,
+        user: memberUserId,
+        status: "active"
+      },
+      { $set: { role } },
+      { new: true, runValidators: true }
+    )
+      .populate("user", "name email role")
+      .populate("addedBy", "name email");
 
-    if (!exists) {
+    if (!member) {
       return res.status(404).json({
         success: false,
-        message: "Team member not found"
+        message: "Active team member not found"
       });
     }
 
-    project.teamMembers = project.teamMembers.filter(
-      (memberId) => memberId.toString() !== userId
+    return res.status(200).json({
+      success: true,
+      message: "Team member role updated successfully",
+      member
+    });
+  } catch (error) {
+    console.error("Update Team Member Role Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update team member role"
+    });
+  }
+};
+
+// 9. REMOVE TEAM MEMBER
+const removeTeamMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId: memberUserId } = req.body;
+    const currentUserId = getCurrentUserId(req);
+
+    if (!isValidId(id) || !isValidId(memberUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid project ID or user ID"
+      });
+    }
+
+    const project = await findOwnedProject(id, currentUserId);
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found or unauthorized"
+      });
+    }
+
+    if (memberUserId.toString() === currentUserId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: "Project owner cannot remove themselves"
+      });
+    }
+
+    const member = await TeamMember.findOneAndUpdate(
+      {
+        project: id,
+        user: memberUserId,
+        status: "active"
+      },
+      { $set: { status: "removed" } },
+      { new: true }
     );
 
-    await project.save();
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: "Active team member not found"
+      });
+    }
 
-    await project.populate("teamMembers", "name email");
+    await Project.updateOne(
+      { _id: id },
+      { $pull: { teamMembers: memberUserId } }
+    );
 
     return res.status(200).json({
       success: true,
-      message: "Team member removed successfully",
-      project
+      message: "Team member removed successfully"
     });
-
   } catch (error) {
     console.error("Remove Team Member Error:", error);
 
@@ -536,7 +680,7 @@ const removeTeamMember = async (req, res) => {
   }
 };
 
-
+// EXPORTS
 module.exports = {
   createProject,
   getProjects,
@@ -544,5 +688,7 @@ module.exports = {
   updateProject,
   deleteProject,
   addTeamMember,
+  getTeamMembers,
+  updateTeamMemberRole,
   removeTeamMember
 };
