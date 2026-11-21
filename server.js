@@ -13,11 +13,25 @@ dotenv.config();
 
 const app = express();
 
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-  }),
-);
+
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://project-management-system-frontend-iota.vercel.app"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
+app.use(express.json());
 
 app.use(express.json());
 
