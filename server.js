@@ -5,7 +5,7 @@ const dotenv = require("dotenv");
 
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
-const authMiddleware = require("./middlewares/authMiddleware.js");
+const authMiddleware = require("./middlewares/authmiddleware.js");
 const projectRoutes = require("./routes/projectroute.js");
 const ticketRoutes = require("./routes/ticketRoutes.js");
 const commentRoutes = require("./routes/commentRoute.js");
