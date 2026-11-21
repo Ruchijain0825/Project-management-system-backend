@@ -1,13 +1,12 @@
-
 const express = require("express");
 const router = express.Router();
 
-const authMiddleware = require("../middlewares/authMiddleware");
+const authMiddleware = require("../middlewares/authMiddleware.js");
 
 const {
   addComment,
   getComments,
-  deleteComment
+  deleteComment,
 } = require("../controllers/commentcontroller.js");
 
 router.use(authMiddleware);

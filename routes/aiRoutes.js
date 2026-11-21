@@ -8,7 +8,7 @@ const {
 } = require("../controllers/aicontroller");
 
 const authMiddleware = require("../middlewares/authMiddleware");
-const authorizeRoles = require("../middlewares/roleMiddleware");
+const authorizeRoles = require("../middlewares/rolemiddleware");
 
 // Generate ticket using AI
 router.post(

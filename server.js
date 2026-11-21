@@ -1,22 +1,23 @@
-
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
-const authMiddleware = require("./middlewares/authmiddleware.js");
+const authMiddleware = require("./middlewares/authMiddleware.js");
 const projectRoutes = require("./routes/projectroute.js");
 const ticketRoutes = require("./routes/ticketRoutes.js");
 const commentRoutes = require("./routes/commentRoute.js");
-const aiRoutes = require("./routes/aiRoutes.js")
+const aiRoutes = require("./routes/aiRoutes.js");
 dotenv.config();
 
 const app = express();
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173"
-}));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  }),
+);
 
 app.use(express.json());
 
@@ -29,13 +30,13 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/ai",aiRoutes)
+app.use("/api/ai", aiRoutes);
 
 // Protected test route
 app.get("/api/auth/me", authMiddleware, (req, res) => {
   res.json({
     success: true,
-    user: req.user
+    user: req.user,
   });
 });
 
