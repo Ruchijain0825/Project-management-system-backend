@@ -36,6 +36,12 @@ const ticketSchema = new mongoose.Schema(
       default: "To Do"
     },
 
+    // New field: Ticket deadline
+    dueDate: {
+      type: Date,
+      default: null
+    },
+
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
